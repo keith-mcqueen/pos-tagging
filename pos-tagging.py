@@ -153,7 +153,6 @@ class POSLabeler:
                     best_prob, best_pos = max((v[tag] + log(float(self.transition_probabilities[context].setdefault(tag, 1)) / float(self.transition_probabilities[context][TOTAL])) + log(float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
                     v[best_pos] = best_prob
 
-
                 best_prob, best_pos = max((v[tag], tag) for tag in v)
                 print "%5s  %5s  %14.13f" % (pos, best_pos, best_prob)
 
