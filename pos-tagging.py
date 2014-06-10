@@ -2,6 +2,8 @@
 import argparse
 import os
 from math import log
+from pprint import pprint
+import sys
 
 TOTAL = '#####'
 
@@ -11,6 +13,7 @@ class POSLabeler:
         self.training_file = None
         self.test_file = None
         self.default_context = [""]
+        self.confusion_matrix = {}
 
         self.transition_probabilities = {}
         self.emission_probabilities = {}
@@ -77,6 +80,8 @@ class POSLabeler:
         # start with the default context
         context = tuple(self.default_context)
 
+
+
         with open(self.training_file, 'r') as in_file:
             input_str = in_file.read()
 
@@ -84,6 +89,9 @@ class POSLabeler:
             for token in input_str.split():
                 # increment the token count
                 self.token_count += 1
+
+                # if self.token_count >= 10000:
+                #     break
 
                 # split the token into word, part-of-speech
                 word, pos = token.split('_')
@@ -128,7 +136,11 @@ class POSLabeler:
         print
 
         # context = tuple(self.default_context)
-        v = {}
+        k = 0
+        v = [{}]
+
+        for pos_tag in self.initial_probabilities:
+            v[k][pos_tag] = log(self.initial_probabilities[pos_tag])
 
         with open(self.test_file, 'r') as test_file:
             input_str = test_file.read()
@@ -137,28 +149,60 @@ class POSLabeler:
             tokens = input_str.split()
 
             # compute the initial probability for the 0th token
-            word, pos = tokens[0].split('_')
-            for pos_tag in self.initial_probabilities:
-                e_prob = self.emission_probabilities[pos_tag]
-                count = float(e_prob.setdefault(word, 1))
-                total = float(e_prob[TOTAL])
-                v[pos_tag] = log(self.initial_probabilities[pos_tag] * (count / total))
+            # word, pos = tokens[0].split('_')
+            # for pos_tag in self.initial_probabilities:
+            #     e_prob = self.emission_probabilities[pos_tag]
+            #     v[pos_tag] = log(self.initial_probabilities[pos_tag] * (float(e_prob.setdefault(word, 1)) / float(e_prob[TOTAL])))
 
-            for token in tokens[1:]:
+            for token in tokens:
+                k += 1
+                v.append({})
+
                 # split the token into word and part-of-speech
                 word, pos = token.split('_')
 
-                for context in self.transition_probabilities:
-                    # best_prob, best_pos = max((v[tag] * (float(self.transition_probabilities[context].setdefault(tag, 1)) / float(self.transition_probabilities[context][TOTAL])) * (float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
-                    best_prob, best_pos = max((v[tag] + log(float(self.transition_probabilities[context].setdefault(tag, 1)) / float(self.transition_probabilities[context][TOTAL])) + log(float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
-                    v[best_pos] = best_prob
+                best_pos = None
+                best_prob = -sys.maxsize - 2
+                for tag in self.emission_probabilities:
+                    emit_term = log(float(self.emission_probabilities[tag].setdefault(word, 0.0000000001)) /
+                                    float(self.emission_probabilities[tag][TOTAL]))
 
-                best_prob, best_pos = max((v[tag], tag) for tag in v)
-                print "%5s  %5s  %14.13f" % (pos, best_pos, best_prob)
+                    for prev in self.transition_probabilities:
+                        prev_tag = prev[-1]
+
+                        v_term = v[k-1].setdefault(prev_tag, log(0.0000000001))
+                        trans_term = log(float(self.transition_probabilities[prev].setdefault(tag, 0.0000000001)) /
+                                         float(self.transition_probabilities[prev][TOTAL]))
+
+                        # print "word: %15s  tag: %5s  prev_tag: %5s  v_term: %-10.9f  trans_term: %-10.9f  emit_term: %-10.9f  total_p: %10.9f  best_prob: %10.9f  best_pos: %5s" % (word, tag, prev_tag, v_term, trans_term, emit_term, v_term + trans_term + emit_term, best_prob, best_pos)
+
+
+                        best_prob, best_pos = max((best_prob, best_pos), (v_term + trans_term + emit_term, tag))
+
+                        v[k][tag] = best_prob
+
+                # for pos_tag in self.emission_probabilities:
+                    # best_prob, best_pos = max((v[tag] * (float(self.transition_probabilities[context].setdefault(tag, 1)) / float(self.transition_probabilities[context][TOTAL])) * (float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
+                # best_prob, best_pos = max((v[k][tag] + log(float((self.transition_probabilities[context]).setdefault(tag, 1)) / float(
+                #     self.transition_probabilities[context][TOTAL])) + log(float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
+                # v[best_pos] = best_prob
+
+                # best_prob, best_pos = max((v[k][tag], tag) for tag in self.emission_probabilities)
+                # print "word: %15s  pos: %5s  best_prob: %10.9f  best_pos: %5s" % (word, pos, best_prob, best_pos)
+
+                # update confusion matrix
+                confusion_counts = self.confusion_matrix.setdefault(pos, {})
+                confusion_count = confusion_counts.setdefault(best_pos, 0)
+                self.confusion_matrix[pos][best_pos] = confusion_count + 1
+
+                # update the context
+                # context = self.update_context(context, best_pos)
+
+            pprint(self.confusion_matrix)
 
     @staticmethod
-    def update_context(context, word):
-        return tuple((list(context) + [word])[1:])
+    def update_context(context, next):
+        return tuple((list(context) + [next])[1:])
 
     def compute_initial_probabilities(self):
         print "Total number of words read: %s" % self.token_count
