@@ -1,6 +1,7 @@
 # import random
 import argparse
 import os
+from math import log
 
 TOTAL = '#####'
 
@@ -121,6 +122,41 @@ class POSLabeler:
         pos_counts[pos] = pos_count + 1
         pos_counts[TOTAL] += 1
 
+    def do_pos_labeling(self):
+        print
+        print "Performing Part-of-Speech labeling on %s ..." % self.test_file
+        print
+
+        # context = tuple(self.default_context)
+        v = {}
+
+        with open(self.test_file, 'r') as test_file:
+            input_str = test_file.read()
+
+            # split the text up into tokens
+            tokens = input_str.split()
+
+            # compute the initial probability for the 0th token
+            word, pos = tokens[0].split('_')
+            for pos_tag in self.initial_probabilities:
+                e_prob = self.emission_probabilities[pos_tag]
+                count = float(e_prob.setdefault(word, 1))
+                total = float(e_prob[TOTAL])
+                v[pos_tag] = log(self.initial_probabilities[pos_tag] * (count / total))
+
+            for token in tokens[1:]:
+                # split the token into word and part-of-speech
+                word, pos = token.split('_')
+
+                for context in self.transition_probabilities:
+                    # best_prob, best_pos = max((v[tag] * (float(self.transition_probabilities[context].setdefault(tag, 1)) / float(self.transition_probabilities[context][TOTAL])) * (float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
+                    best_prob, best_pos = max((v[tag] + log(float(self.transition_probabilities[context].setdefault(tag, 1)) / float(self.transition_probabilities[context][TOTAL])) + log(float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
+                    v[best_pos] = best_prob
+
+
+                best_prob, best_pos = max((v[tag], tag) for tag in v)
+                print "%5s  %5s  %14.13f" % (pos, best_pos, best_prob)
+
     @staticmethod
     def update_context(context, word):
         return tuple((list(context) + [word])[1:])
@@ -146,3 +182,4 @@ if __name__ == '__main__':
 
     labeler = POSLabeler()
     labeler.generate_language_model()
+    labeler.do_pos_labeling()
