@@ -4,6 +4,10 @@ import os
 from math import log
 from pprint import pprint
 import sys
+import time
+import datetime
+
+DEFAULT_PROB = 0.0000000001
 
 TOTAL = '#####'
 
@@ -12,6 +16,7 @@ class POSLabeler:
     def __init__(self):
         self.training_file = None
         self.test_file = None
+        self.output_file = None
         self.default_context = [""]
         self.confusion_matrix = {}
 
@@ -41,6 +46,11 @@ class POSLabeler:
                             action="store",
                             help="The path to a file containing test data for part-of-speech labeling")
 
+        # add the <training-data> argument
+        parser.add_argument("--output-file",
+                            action="store",
+                            help="The path to a file in which to store the results")
+
         # add the <n> argument
         parser.add_argument("--n",
                             type=int,
@@ -69,10 +79,15 @@ class POSLabeler:
         if not os.path.isfile(self.training_file):
             raise Exception("Path %s is not a file" % self.test_file)
 
+        # save the path to the output file
+        self.output_file = args.output_file
+
         # pre-generate the context
         self.default_context = [""] * args.n
 
     def generate_language_model(self):
+        start_time = time.time()
+
         print
         print "Creating model from %s ..." % self.training_file
         print
@@ -80,18 +95,24 @@ class POSLabeler:
         # start with the default context
         context = tuple(self.default_context)
 
-
-
         with open(self.training_file, 'r') as in_file:
             input_str = in_file.read()
 
             # split the text up into tokens
-            for token in input_str.split():
+            tokens = input_str.split()
+            for token in tokens:
                 # increment the token count
                 self.token_count += 1
 
-                # if self.token_count >= 10000:
-                #     break
+                # output progress
+                progress = int(float(self.token_count) / float(len(tokens)) * 100)
+                d_time = datetime.timedelta(seconds=int(time.time() - start_time))
+                print '\rProcessing token {3} of {4} in {5}: [{0}{1}] {2}%'.format('#' * progress,
+                                                                                   '.' * (100 - progress),
+                                                                                   progress,
+                                                                                   self.token_count,
+                                                                                   len(tokens),
+                                                                                   d_time),
 
                 # split the token into word, part-of-speech
                 word, pos = token.split('_')
@@ -131,32 +152,34 @@ class POSLabeler:
         pos_counts[TOTAL] += 1
 
     def do_pos_labeling(self):
+        start_time = time.time()
+
         print
         print "Performing Part-of-Speech labeling on %s ..." % self.test_file
         print
 
-        # context = tuple(self.default_context)
-        k = 0
-        v = [{}]
+        v = {}
 
         for pos_tag in self.initial_probabilities:
-            v[k][pos_tag] = log(self.initial_probabilities[pos_tag])
+            v[pos_tag] = log(self.initial_probabilities[pos_tag])
 
         with open(self.test_file, 'r') as test_file:
             input_str = test_file.read()
 
             # split the text up into tokens
             tokens = input_str.split()
-
-            # compute the initial probability for the 0th token
-            # word, pos = tokens[0].split('_')
-            # for pos_tag in self.initial_probabilities:
-            #     e_prob = self.emission_probabilities[pos_tag]
-            #     v[pos_tag] = log(self.initial_probabilities[pos_tag] * (float(e_prob.setdefault(word, 1)) / float(e_prob[TOTAL])))
-
+            token_count = 0
             for token in tokens:
-                k += 1
-                v.append({})
+                # output progress
+                token_count += 1
+                progress = int(float(token_count) / float(len(tokens)) * 100)
+                d_time = datetime.timedelta(seconds=int(time.time() - start_time))
+                print '\rProcessing token {3} of {4} in {5}: [{0}{1}] {2}%'.format('#' * progress,
+                                                                                   '.' * (100 - progress),
+                                                                                   progress,
+                                                                                   token_count,
+                                                                                   len(tokens),
+                                                                                   d_time),
 
                 # split the token into word and part-of-speech
                 word, pos = token.split('_')
@@ -164,48 +187,44 @@ class POSLabeler:
                 best_pos = None
                 best_prob = -sys.maxsize - 2
                 for tag in self.emission_probabilities:
-                    emit_term = log(float(self.emission_probabilities[tag].setdefault(word, 0.0000000001)) /
+                    emit_term = log(float(self.emission_probabilities[tag].setdefault(word, DEFAULT_PROB)) /
                                     float(self.emission_probabilities[tag][TOTAL]))
 
                     for prev in self.transition_probabilities:
                         prev_tag = prev[-1]
 
-                        v_term = v[k-1].setdefault(prev_tag, log(0.0000000001))
-                        trans_term = log(float(self.transition_probabilities[prev].setdefault(tag, 0.0000000001)) /
+                        v_term = v.setdefault(prev_tag, log(DEFAULT_PROB))
+                        trans_term = log(float(self.transition_probabilities[prev].setdefault(tag, DEFAULT_PROB)) /
                                          float(self.transition_probabilities[prev][TOTAL]))
-
-                        # print "word: %15s  tag: %5s  prev_tag: %5s  v_term: %-10.9f  trans_term: %-10.9f  emit_term: %-10.9f  total_p: %10.9f  best_prob: %10.9f  best_pos: %5s" % (word, tag, prev_tag, v_term, trans_term, emit_term, v_term + trans_term + emit_term, best_prob, best_pos)
-
 
                         best_prob, best_pos = max((best_prob, best_pos), (v_term + trans_term + emit_term, tag))
 
-                        v[k][tag] = best_prob
-
-                # for pos_tag in self.emission_probabilities:
-                    # best_prob, best_pos = max((v[tag] * (float(self.transition_probabilities[context].setdefault(tag, 1)) / float(self.transition_probabilities[context][TOTAL])) * (float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
-                # best_prob, best_pos = max((v[k][tag] + log(float((self.transition_probabilities[context]).setdefault(tag, 1)) / float(
-                #     self.transition_probabilities[context][TOTAL])) + log(float(self.emission_probabilities[tag].setdefault(word, 1)) / float(self.emission_probabilities[tag][TOTAL])), tag) for tag in self.emission_probabilities)
-                # v[best_pos] = best_prob
-
-                # best_prob, best_pos = max((v[k][tag], tag) for tag in self.emission_probabilities)
-                # print "word: %15s  pos: %5s  best_prob: %10.9f  best_pos: %5s" % (word, pos, best_prob, best_pos)
+                        v[tag] = best_prob
 
                 # update confusion matrix
                 confusion_counts = self.confusion_matrix.setdefault(pos, {})
                 confusion_count = confusion_counts.setdefault(best_pos, 0)
                 self.confusion_matrix[pos][best_pos] = confusion_count + 1
 
-                # update the context
-                # context = self.update_context(context, best_pos)
+            print
 
-            pprint(self.confusion_matrix)
+            if self.output_file is None:
+                pprint(self.confusion_matrix)
+            else:
+                print "Writing results to %s" % self.output_file
+
+                output_dir = os.path.dirname(self.output_file)
+                print "output dir: %s" % output_dir
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+                with open(self.output_file, 'w') as output:
+                    pprint(self.confusion_matrix, output)
 
     @staticmethod
     def update_context(context, next):
         return tuple((list(context) + [next])[1:])
 
     def compute_initial_probabilities(self):
-        print "Total number of words read: %s" % self.token_count
         print
         print "POS Tag  POS Tokens  POS Probability"
         print "=======  ==========  ==============="
