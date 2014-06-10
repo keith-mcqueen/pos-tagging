@@ -67,8 +67,6 @@ class NGram:
         with open(self.input_file, 'r') as in_file:
             input_str = in_file.read()
 
-            # TODO: should we clean up the text at all?
-
             # split the text up into words
             for word in input_str.split():
                 # get the word counts dictionary for the current context (create one if it doesn't already exist)
@@ -81,7 +79,7 @@ class NGram:
                 word_counts[word] = word_count + 1
 
                 # put the word counts dictionary back into the model
-                self.model[context] = word_counts
+                # self.model[context] = word_counts
 
                 # update the context with the current word
                 context = self.update_context(context, word)

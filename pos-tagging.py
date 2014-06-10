@@ -1,14 +1,21 @@
-import random
+# import random
 import argparse
 import os
+
+TOTAL = '#####'
 
 
 class POSLabeler:
     def __init__(self):
-        self.language_model = {'transitions': {}, 'emissions': {}}
         self.training_file = None
         self.test_file = None
         self.default_context = [""]
+
+        self.transition_probabilities = {}
+        self.emission_probabilities = {}
+        self.initial_probabilities = {}
+
+        self.token_count = 0
 
         # parse the command line args
         self.parse_args()
@@ -72,10 +79,11 @@ class POSLabeler:
         with open(self.training_file, 'r') as in_file:
             input_str = in_file.read()
 
-            # TODO: should we clean up the text at all?
-
             # split the text up into tokens
             for token in input_str.split():
+                # increment the token count
+                self.token_count += 1
+
                 # split the token into word, part-of-speech
                 word, pos = token.split('_')
 
@@ -88,93 +96,53 @@ class POSLabeler:
                 # update the context with the current word
                 context = self.update_context(context, pos)
 
-
+        # perform some model post-processing
+        self.compute_initial_probabilities()
 
     def update_emission_probabilities(self, pos, word):
-        # get the emissions probabilities from the language model
-        emissions = self.language_model.get('emissions')
-
         # get the word counts from the emissions for the part-of-speech (create one if necessary)
-        word_counts = emissions.setdefault(pos, {word: 0})
+        word_counts = self.emission_probabilities.setdefault(pos, {word: 0, TOTAL: 0})
 
         # get the word count for the current word
         word_count = word_counts.setdefault(word, 0)
 
         # increment the word count and add it back to the word counts
         word_counts[word] = word_count + 1
+        word_counts[TOTAL] += 1
 
     def update_transition_probabilities(self, context, pos):
-        # get the transition probabilities from the language model
-        transitions = self.language_model.get('transitions')
-
         # get the part-of-speech counts for the current context (create one if it doesn't already exist)
-        pos_counts = transitions.setdefault(context, {pos: 0})
+        pos_counts = self.transition_probabilities.setdefault(context, {pos: 0, TOTAL: 0})
 
         # get the part-of-speech count for the current pos
         pos_count = pos_counts.setdefault(pos, 0)
 
         # increment the word count and add it to the word counts dictionary
         pos_counts[pos] = pos_count + 1
-
-        # put the word counts dictionary back into the model
-        transitions[context] = pos_counts
-
-    # def generate_output(self):
-    #     print "Generating text ..."
-    #     print
-    #
-    #     # get a context to start with
-    #     context = self.select_context()
-    #
-    #     # select words up to the desired length
-    #     for i in range(self.output_length):
-    #         # select the word given the current context
-    #         word = self.select_word(context)
-    #
-    #         # print out the word (followed by a space)
-    #         print word,
-    #
-    #         # update the context with the last word
-    #         context = self.update_context(context, word)
-    #
-    #     print
-    #     print
-
-    def select_context(self):
-        return random.sample(self.language_model.keys(), 1)[0]
-
-    def select_word(self, context):
-        # get the dictionary of words for the current context
-        word_counts = self.language_model[context]
-
-        # if there is only one word, then just return that
-        if len(word_counts) == 1:
-            return word_counts.keys()[0]
-
-        # get the total number of words for the given context
-        total_words = sum(word_counts.values())
-
-        # pick a number, any number, between 1 and the total number of words
-        num = random.randint(1, total_words)
-
-        word_low = word_high = 0
-        for word in word_counts:
-            word_low = word_high
-            word_high = word_low + word_counts[word]
-
-            if word_low < num <= word_high:
-                return word
-
-        return word_counts.keys()[0]
+        pos_counts[TOTAL] += 1
 
     @staticmethod
     def update_context(context, word):
         return tuple((list(context) + [word])[1:])
 
+    def compute_initial_probabilities(self):
+        print "Total number of words read: %s" % self.token_count
+        print
+        print "POS Tag  POS Tokens  POS Probability"
+        print "=======  ==========  ==============="
+
+        for pos in self.emission_probabilities:
+            pos_token_count = self.emission_probabilities[pos][TOTAL]
+            pos_probability = float(pos_token_count) / float(self.token_count)
+            self.initial_probabilities[pos] = pos_probability
+            print " %5s    %7s    %12.13f" % (pos, pos_token_count, pos_probability)
 
 if __name__ == '__main__':
-    try:
-        labeler = POSLabeler()
-        labeler.generate_language_model()
-    except Exception, e:
-        print e.message
+    # try:
+    #     labeler = POSLabeler()
+    #     labeler.generate_language_model()
+    # except Exception, e:
+    #     print e.message
+
+    labeler = POSLabeler()
+    labeler.generate_language_model()
